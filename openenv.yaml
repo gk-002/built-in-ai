@@ -1,0 +1,203 @@
+name: supply-chain-inventory-management
+version: "1.0.0"
+description: >
+  A real-world supply chain inventory management environment where an AI agent
+  must optimize stock levels across multiple warehouses, fulfill customer orders,
+  and minimize holding and stockout costs. Simulates real operational decisions
+  made by logistics and supply chain managers daily.
+
+author: Ganesh Kendre
+contact: myslfgk24@gmail.com
+
+# ── Task Definition ───────────────────────────────────────────────────────────
+task:
+  type: sequential-decision
+  domain: supply-chain-logistics
+  real_world: true
+  max_timesteps: 50
+
+# ── API Compliance ────────────────────────────────────────────────────────────
+api:
+  reset:
+    description: Resets environment to initial state, returns first observation
+    returns: Observation
+  step:
+    description: Takes one action (restock decisions), returns next obs, reward, done, info
+    input: Action
+    returns: StepResult
+  state:
+    description: Returns full internal state for debugging and evaluation
+    returns: FullState
+
+# ── Action Space ──────────────────────────────────────────────────────────────
+action_space:
+  type: dict
+  description: >
+    Restock order decisions per warehouse per product.
+    Agent decides how many units of each product to reorder for each warehouse.
+  schema:
+    restock_orders:
+      type: dict
+      keys: warehouse_ids  # [wh_north, wh_south, wh_east]
+      values:
+        type: dict
+        keys: product_ids  # [prod_A, prod_B, prod_C]
+        values:
+          type: integer
+          min: 0
+          max: 200
+  example:
+    restock_orders:
+      wh_north:
+        prod_A: 50
+        prod_B: 20
+      wh_south:
+        prod_C: 30
+
+# ── Observation Space ─────────────────────────────────────────────────────────
+observation_space:
+  type: dict
+  fields:
+    timestep:
+      type: integer
+      description: Current simulation timestep (0 to max_timesteps)
+    warehouse_stocks:
+      type: dict
+      description: Current inventory levels per warehouse per product
+      schema:
+        keys: warehouse_ids
+        values:
+          keys: product_ids
+          values:
+            type: integer
+            min: 0
+    pending_orders:
+      type: list
+      description: Customer orders that must be fulfilled this timestep
+      item_schema:
+        order_id: string
+        product_id: string
+        quantity: integer
+        warehouse_id: string
+    in_transit:
+      type: list
+      description: Restock shipments currently in transit
+      item_schema:
+        warehouse_id: string
+        product_id: string
+        quantity: integer
+        arrive_at: integer
+    prices:
+      type: dict
+      description: Current market price per product
+      schema:
+        keys: product_ids
+        values:
+          type: float
+          min: 10.0
+          max: 50.0
+    demand_forecast:
+      type: dict
+      description: Predicted customer demand per warehouse per product
+      schema:
+        keys: warehouse_ids
+        values:
+          keys: product_ids
+          values:
+            type: float
+            min: 0.0
+
+# ── Products ──────────────────────────────────────────────────────────────────
+products:
+  prod_A:
+    name: Electronic Components
+    holding_cost_per_unit: 0.02
+    stockout_penalty: 0.5
+    reorder_lead_time: 2  # timesteps
+  prod_B:
+    name: Medical Supplies
+    holding_cost_per_unit: 0.03
+    stockout_penalty: 0.8
+    reorder_lead_time: 1
+  prod_C:
+    name: Raw Materials
+    holding_cost_per_unit: 0.01
+    stockout_penalty: 0.3
+    reorder_lead_time: 3
+
+# ── Warehouses ────────────────────────────────────────────────────────────────
+warehouses:
+  wh_north:
+    name: North Hub
+    capacity: 500
+    initial_stock:
+      prod_A: 100
+      prod_B: 80
+      prod_C: 150
+  wh_south:
+    name: South Hub
+    capacity: 400
+    initial_stock:
+      prod_A: 80
+      prod_B: 60
+      prod_C: 120
+  wh_east:
+    name: East Hub
+    capacity: 300
+    initial_stock:
+      prod_A: 60
+      prod_B: 40
+      prod_C: 90
+
+# ── Reward Function ───────────────────────────────────────────────────────────
+reward:
+  range: [0.0, 1.0]
+  description: >
+    Normalized composite reward based on:
+    - Order fulfillment (positive)
+    - Inventory holding costs (negative)
+    - Stockout penalties (negative)
+    - Restock costs (small negative)
+  formula: >
+    reward = clip((fulfillment - 0.1*holding - 0.2*stockout - 0.01*restock) / 240.0, 0.0, 1.0)
+
+# ── Tasks & Graders ───────────────────────────────────────────────────────────
+tasks:
+  - id: easy
+    name: Minimum Stock Maintenance
+    description: >
+      Keep all products in all warehouses above a minimum threshold of 20 units.
+    difficulty: easy
+    grader: EasyGrader
+    score_range: [0.0, 1.0]
+    passing_score: 0.7
+
+  - id: medium
+    name: Order Fulfillment Rate
+    description: >
+      Achieve at least 70% order fulfillment rate over a full episode.
+    difficulty: medium
+    grader: MediumGrader
+    score_range: [0.0, 1.0]
+    passing_score: 0.7
+
+  - id: hard
+    name: Profit Optimization
+    description: >
+      Maximize total profit (fulfillment revenue minus all costs) over the episode.
+      Score is normalized profit relative to theoretical maximum.
+    difficulty: hard
+    grader: HardGrader
+    score_range: [0.0, 1.0]
+    passing_score: 0.5
+
+# ── Infrastructure ────────────────────────────────────────────────────────────
+infrastructure:
+  python_version: "3.10"
+  dependencies:
+    - numpy>=1.24.0
+  runtime_limit_minutes: 20
+  vcpu: 2
+  memory_gb: 8
+  entry_point: environment.py
+  inference_script: inference.py
